@@ -174,26 +174,25 @@ export default function ZeruBDDashboard() {
   const [editingRowIdx, setEditingRowIdx] = useState(null);
 
   // ── Load data from Supabase on mount ──
-  useEffect(() => {
-    loadData();
-    // Real-time subscriptions
-    const pipelineSub = supabase.channel("pipeline-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "pipeline" }, () => loadPipeline())
-      .subscribe();
-    const scoutSub = supabase.channel("scouting-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "scouting" }, () => loadScouting())
-      .subscribe();
-    return () => { supabase.removeChannel(pipelineSub); supabase.removeChannel(scoutSub); };
-  }, []);
-
-  const loadPipeline = async () => {
+  const loadPipeline = useCallback(async () => {
     const { data } = await supabase.from("pipeline").select("*").order("id");
     if (data && data.length > 0) setPipeline(data.map(dbToUi));
-  };
-  const loadScouting = async () => {
+  }, []);
+  const loadScouting = useCallback(async () => {
     const { data } = await supabase.from("scouting").select("*").order("id");
     if (data && data.length > 0) setScouting(data.map(dbToUiScout));
-  };
+  }, []);
+
+  useEffect(() => {
+    loadData();
+    const pipelineSub = supabase.channel("pipeline-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "pipeline" }, loadPipeline)
+      .subscribe();
+    const scoutSub = supabase.channel("scouting-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "scouting" }, loadScouting)
+      .subscribe();
+    return () => { supabase.removeChannel(pipelineSub); supabase.removeChannel(scoutSub); };
+  }, [loadPipeline, loadScouting]);
 
   const loadData = async () => {
     setLoading(true);
@@ -228,11 +227,13 @@ export default function ZeruBDDashboard() {
     setSaving(false);
   };
   const updateDeal = async (id, field, val) => {
-    setPipeline(prev => prev.map(d => d.id === id ? { ...d, [field]: val } : d));
-    const updated = pipeline.find(d => d.id === id);
-    if (!updated) return;
-    const row = uiToDb({ ...updated, [field]: val });
-    await supabase.from("pipeline").update(row).eq("id", id);
+    setPipeline(prev => {
+      const updated = prev.find(d => d.id === id);
+      if (!updated) return prev;
+      const newRow = { ...updated, [field]: val };
+      supabase.from("pipeline").update(uiToDb(newRow)).eq("id", id);
+      return prev.map(d => d.id === id ? newRow : d);
+    });
   };
   const deleteDeal = async (id) => {
     setPipeline(prev => prev.filter(d => d.id !== id));
@@ -250,11 +251,13 @@ export default function ZeruBDDashboard() {
     setSaving(false);
   };
   const updateScout = async (id, field, val) => {
-    setScouting(prev => prev.map(s => s.id === id ? { ...s, [field]: val } : s));
-    const updated = scouting.find(s => s.id === id);
-    if (!updated) return;
-    const row = uiToDbScout({ ...updated, [field]: val });
-    await supabase.from("scouting").update(row).eq("id", id);
+    setScouting(prev => {
+      const updated = prev.find(s => s.id === id);
+      if (!updated) return prev;
+      const newRow = { ...updated, [field]: val };
+      supabase.from("scouting").update(uiToDbScout(newRow)).eq("id", id);
+      return prev.map(s => s.id === id ? newRow : s);
+    });
   };
   const deleteScout = async (id) => {
     setScouting(prev => prev.filter(s => s.id !== id));
