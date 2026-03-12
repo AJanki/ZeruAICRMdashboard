@@ -194,10 +194,13 @@ export default function ZeruBDDashboard() {
       .on("postgres_changes", { event: "*", schema: "public", table: "scouting" }, () => loadScouting())
       .subscribe();
 
-    // Polling fallback every 8 seconds to catch any missed updates
+    // Polling fallback every 8 seconds — skips if user is actively editing
     const poll = setInterval(() => {
-      loadPipeline();
-      loadScouting();
+      const editing = document.querySelector("input:focus, select:focus");
+      if (!editing) {
+        loadPipeline();
+        loadScouting();
+      }
     }, 8000);
 
     return () => {
@@ -240,13 +243,11 @@ export default function ZeruBDDashboard() {
     setSaving(false);
   };
   const updateDeal = async (id, field, val) => {
-    setPipeline(prev => {
-      const updated = prev.find(d => d.id === id);
-      if (!updated) return prev;
-      const newRow = { ...updated, [field]: val };
-      supabase.from("pipeline").update(uiToDb(newRow)).eq("id", id);
-      return prev.map(d => d.id === id ? newRow : d);
-    });
+    setPipeline(prev => prev.map(d => d.id === id ? { ...d, [field]: val } : d));
+    const current = await supabase.from("pipeline").select("*").eq("id", id).single();
+    if (!current.data) return;
+    const newRow = uiToDb({ ...dbToUi(current.data), [field]: val });
+    await supabase.from("pipeline").update(newRow).eq("id", id);
   };
   const deleteDeal = async (id) => {
     setPipeline(prev => prev.filter(d => d.id !== id));
@@ -264,13 +265,11 @@ export default function ZeruBDDashboard() {
     setSaving(false);
   };
   const updateScout = async (id, field, val) => {
-    setScouting(prev => {
-      const updated = prev.find(s => s.id === id);
-      if (!updated) return prev;
-      const newRow = { ...updated, [field]: val };
-      supabase.from("scouting").update(uiToDbScout(newRow)).eq("id", id);
-      return prev.map(s => s.id === id ? newRow : s);
-    });
+    setScouting(prev => prev.map(s => s.id === id ? { ...s, [field]: val } : s));
+    const current = await supabase.from("scouting").select("*").eq("id", id).single();
+    if (!current.data) return;
+    const newRow = uiToDbScout({ ...dbToUiScout(current.data), [field]: val });
+    await supabase.from("scouting").update(newRow).eq("id", id);
   };
   const deleteScout = async (id) => {
     setScouting(prev => prev.filter(s => s.id !== id));
