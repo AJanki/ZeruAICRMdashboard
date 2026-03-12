@@ -173,7 +173,7 @@ export default function ZeruBDDashboard() {
   const [newDataRow, setNewDataRow] = useState({ period: "", arr: "", deals: "", agentScan: "", zScore: "", zaps: "", ecosystems: "" });
   const [editingRowIdx, setEditingRowIdx] = useState(null);
 
-  // ── Load data from Supabase on mount ──
+  // ── Load + sync data ──
   const loadPipeline = useCallback(async () => {
     const { data } = await supabase.from("pipeline").select("*").order("id");
     if (data && data.length > 0) setPipeline(data.map(dbToUi));
@@ -185,13 +185,26 @@ export default function ZeruBDDashboard() {
 
   useEffect(() => {
     loadData();
-    const pipelineSub = supabase.channel("pipeline-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "pipeline" }, loadPipeline)
+
+    // Real-time subscriptions
+    const pipelineSub = supabase.channel("pipeline-rt")
+      .on("postgres_changes", { event: "*", schema: "public", table: "pipeline" }, () => loadPipeline())
       .subscribe();
-    const scoutSub = supabase.channel("scouting-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "scouting" }, loadScouting)
+    const scoutSub = supabase.channel("scouting-rt")
+      .on("postgres_changes", { event: "*", schema: "public", table: "scouting" }, () => loadScouting())
       .subscribe();
-    return () => { supabase.removeChannel(pipelineSub); supabase.removeChannel(scoutSub); };
+
+    // Polling fallback every 8 seconds to catch any missed updates
+    const poll = setInterval(() => {
+      loadPipeline();
+      loadScouting();
+    }, 8000);
+
+    return () => {
+      supabase.removeChannel(pipelineSub);
+      supabase.removeChannel(scoutSub);
+      clearInterval(poll);
+    };
   }, [loadPipeline, loadScouting]);
 
   const loadData = async () => {
